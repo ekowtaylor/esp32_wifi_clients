@@ -1,0 +1,2 @@
+# Minimal requirements for the package
+pyserial>=3.5
