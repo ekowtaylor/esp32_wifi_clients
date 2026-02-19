@@ -20,8 +20,8 @@
 
 // ==================== Configuration ====================
 // WiFi credentials - CHANGE THESE
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* WIFI_SSID = "Pixel_6104";
+const char* WIFI_PASSWORD = "54321qwert";
 
 // Reporting settings
 unsigned long reportInterval = 1000;  // Default: 1 second
@@ -169,23 +169,130 @@ void sendPerformanceReport() {
         return;
     }
 
-    // Get WiFi stats
+    // Get detailed WiFi stats from ESP-IDF
     wifi_ap_record_t wifiInfo;
     esp_wifi_sta_get_ap_info(&wifiInfo);
+
+    // Get TX power
+    int8_t txPower;
+    esp_wifi_get_max_tx_power(&txPower);
+
+    // Get WiFi protocol mode
+    uint8_t protocol;
+    esp_wifi_get_protocol(WIFI_IF_STA, &protocol);
+
+    // Get bandwidth
+    wifi_bandwidth_t bandwidth;
+    esp_wifi_get_bandwidth(WIFI_IF_STA, &bandwidth);
 
     // Calculate latency stats
     float latencyAvg = (latencyCount > 0) ? (latencySum / latencyCount) : 0;
 
-    // Build JSON response
+    // Estimate noise floor (typical values for 2.4GHz: -90 to -95 dBm)
+    int noiseFloor = -95;
+    int snr = WiFi.RSSI() - noiseFloor;
+
+    // Determine PHY mode string
+    String phyMode = "unknown";
+    if (wifiInfo.phy_11ax) phyMode = "802.11ax";
+    else if (wifiInfo.phy_11n) phyMode = "802.11n";
+    else if (wifiInfo.phy_11g) phyMode = "802.11g";
+    else if (wifiInfo.phy_11b) phyMode = "802.11b";
+
+    // Determine auth mode string
+    String authMode = "unknown";
+    switch (wifiInfo.authmode) {
+        case WIFI_AUTH_OPEN: authMode = "open"; break;
+        case WIFI_AUTH_WEP: authMode = "wep"; break;
+        case WIFI_AUTH_WPA_PSK: authMode = "wpa_psk"; break;
+        case WIFI_AUTH_WPA2_PSK: authMode = "wpa2_psk"; break;
+        case WIFI_AUTH_WPA_WPA2_PSK: authMode = "wpa_wpa2_psk"; break;
+        case WIFI_AUTH_WPA3_PSK: authMode = "wpa3_psk"; break;
+        case WIFI_AUTH_WPA2_WPA3_PSK: authMode = "wpa2_wpa3_psk"; break;
+        case WIFI_AUTH_WAPI_PSK: authMode = "wapi_psk"; break;
+        default: authMode = "enterprise"; break;
+    }
+
+    // Determine pairwise cipher string
+    String cipher = "unknown";
+    switch (wifiInfo.pairwise_cipher) {
+        case WIFI_CIPHER_TYPE_NONE: cipher = "none"; break;
+        case WIFI_CIPHER_TYPE_WEP40: cipher = "wep40"; break;
+        case WIFI_CIPHER_TYPE_WEP104: cipher = "wep104"; break;
+        case WIFI_CIPHER_TYPE_TKIP: cipher = "tkip"; break;
+        case WIFI_CIPHER_TYPE_CCMP: cipher = "ccmp"; break;
+        case WIFI_CIPHER_TYPE_TKIP_CCMP: cipher = "tkip_ccmp"; break;
+        case WIFI_CIPHER_TYPE_AES_CMAC128: cipher = "aes_cmac128"; break;
+        case WIFI_CIPHER_TYPE_GCMP: cipher = "gcmp"; break;
+        case WIFI_CIPHER_TYPE_GCMP256: cipher = "gcmp256"; break;
+        default: break;
+    }
+
+    // Bandwidth string
+    String bwStr = (bandwidth == WIFI_BW_HT20) ? "20MHz" : "40MHz";
+
+    // Estimate link speed based on PHY mode and bandwidth
+    int linkSpeed = 54;  // Default 802.11g
+    if (wifiInfo.phy_11ax) {
+        linkSpeed = (bandwidth == WIFI_BW_HT40) ? 574 : 287;  // WiFi 6 estimates
+    } else if (wifiInfo.phy_11n) {
+        linkSpeed = (bandwidth == WIFI_BW_HT40) ? 300 : 150;
+    }
+
+    // Build JSON response with ALL parameters
     Serial.print("{");
     Serial.print("\"status\":\"connected\"");
+    
+    // Network identification
     Serial.print(",\"ssid\":\""); Serial.print(WiFi.SSID()); Serial.print("\"");
     Serial.print(",\"bssid\":\""); Serial.print(WiFi.BSSIDstr()); Serial.print("\"");
-    Serial.print(",\"channel\":"); Serial.print(WiFi.channel());
-    Serial.print(",\"rssi\":"); Serial.print(WiFi.RSSI());
+    Serial.print(",\"ip\":\""); Serial.print(WiFi.localIP().toString()); Serial.print("\"");
+    Serial.print(",\"gateway\":\""); Serial.print(WiFi.gatewayIP().toString()); Serial.print("\"");
+    Serial.print(",\"subnet\":\""); Serial.print(WiFi.subnetMask().toString()); Serial.print("\"");
+    Serial.print(",\"dns\":\""); Serial.print(WiFi.dnsIP().toString()); Serial.print("\"");
+    Serial.print(",\"mac\":\""); Serial.print(WiFi.macAddress()); Serial.print("\"");
 
-    // Link speed (if available)
-    Serial.print(",\"link_speed\":"); Serial.print(wifiInfo.phy_11n ? 150 : 54);
+    // Channel info
+    Serial.print(",\"channel\":"); Serial.print(wifiInfo.primary);
+    Serial.print(",\"secondary_channel\":"); Serial.print(wifiInfo.second);
+
+    // Signal quality
+    Serial.print(",\"rssi\":"); Serial.print(WiFi.RSSI());
+    Serial.print(",\"noise_floor\":"); Serial.print(noiseFloor);
+    Serial.print(",\"snr\":"); Serial.print(snr);
+    
+    // TX power (in 0.25 dBm units, convert to dBm)
+    Serial.print(",\"tx_power\":"); Serial.print(txPower / 4.0, 1);
+
+    // PHY layer info
+    Serial.print(",\"phy_mode\":\""); Serial.print(phyMode); Serial.print("\"");
+    Serial.print(",\"phy_11b\":"); Serial.print(wifiInfo.phy_11b ? "true" : "false");
+    Serial.print(",\"phy_11g\":"); Serial.print(wifiInfo.phy_11g ? "true" : "false");
+    Serial.print(",\"phy_11n\":"); Serial.print(wifiInfo.phy_11n ? "true" : "false");
+    Serial.print(",\"phy_11ax\":"); Serial.print(wifiInfo.phy_11ax ? "true" : "false");
+    Serial.print(",\"phy_lr\":"); Serial.print(wifiInfo.phy_lr ? "true" : "false");
+
+    // Bandwidth and speed
+    Serial.print(",\"bandwidth\":\""); Serial.print(bwStr); Serial.print("\"");
+    Serial.print(",\"link_speed\":"); Serial.print(linkSpeed);
+
+    // Security
+    Serial.print(",\"auth_mode\":\""); Serial.print(authMode); Serial.print("\"");
+    Serial.print(",\"cipher\":\""); Serial.print(cipher); Serial.print("\"");
+
+    // Country code
+    wifi_country_t country;
+    if (esp_wifi_get_country(&country) == ESP_OK) {
+        Serial.print(",\"country\":\"");
+        Serial.print(country.cc[0]); Serial.print(country.cc[1]);
+        Serial.print("\"");
+        Serial.print(",\"max_tx_power_country\":"); Serial.print(country.max_tx_power);
+    }
+
+    // HE (WiFi 6) capabilities if available
+    Serial.print(",\"wifi6_supported\":"); Serial.print(wifiInfo.phy_11ax ? "true" : "false");
+    Serial.print(",\"ftm_responder\":"); Serial.print(wifiInfo.ftm_responder ? "true" : "false");
+    Serial.print(",\"ftm_initiator\":"); Serial.print(wifiInfo.ftm_initiator ? "true" : "false");
 
     // Packet statistics
     Serial.print(",\"tx_packets\":"); Serial.print(txPackets);
@@ -195,18 +302,28 @@ void sendPerformanceReport() {
     Serial.print(",\"tx_errors\":"); Serial.print(txErrors);
     Serial.print(",\"rx_errors\":"); Serial.print(rxErrors);
     Serial.print(",\"tx_retries\":"); Serial.print(txRetries);
+    Serial.print(",\"connection_attempts\":"); Serial.print(connectionAttempts);
 
     // Latency
     if (latencyCount > 0) {
-        Serial.print(",\"latency_min\":"); Serial.print(latencyMin, 1);
-        Serial.print(",\"latency_avg\":"); Serial.print(latencyAvg, 1);
-        Serial.print(",\"latency_max\":"); Serial.print(latencyMax, 1);
+        float jitter = latencyMax - latencyMin;
+        Serial.print(",\"latency_min\":"); Serial.print(latencyMin, 2);
+        Serial.print(",\"latency_avg\":"); Serial.print(latencyAvg, 2);
+        Serial.print(",\"latency_max\":"); Serial.print(latencyMax, 2);
+        Serial.print(",\"jitter\":"); Serial.print(jitter, 2);
+        Serial.print(",\"latency_samples\":"); Serial.print(latencyCount);
     }
 
     // System info
     Serial.print(",\"free_heap\":"); Serial.print(ESP.getFreeHeap());
+    Serial.print(",\"min_free_heap\":"); Serial.print(ESP.getMinFreeHeap());
+    Serial.print(",\"heap_size\":"); Serial.print(ESP.getHeapSize());
     Serial.print(",\"uptime\":"); Serial.print(millis() / 1000);
+    Serial.print(",\"uptime_ms\":"); Serial.print(millis());
     Serial.print(",\"cpu_freq\":"); Serial.print(ESP.getCpuFreqMHz());
+    Serial.print(",\"chip_model\":\""); Serial.print(ESP.getChipModel()); Serial.print("\"");
+    Serial.print(",\"chip_revision\":"); Serial.print(ESP.getChipRevision());
+    Serial.print(",\"sdk_version\":\""); Serial.print(ESP.getSdkVersion()); Serial.print("\"");
 
     Serial.println("}");
 }

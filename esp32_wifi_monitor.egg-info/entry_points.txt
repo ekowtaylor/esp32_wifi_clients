@@ -1,0 +1,2 @@
+[console_scripts]
+esp32-wifi-monitor = esp32_wifi.cli:main
