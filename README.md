@@ -242,6 +242,8 @@ Commands sent to ESP32 devices over serial:
 | `SET_INTERVAL:X` | Set reporting interval (milliseconds) |
 | `CONTINUOUS:ON` | Enable continuous reporting |
 | `CONTINUOUS:OFF` | Disable continuous reporting |
+| `SET_NAME:X` | Set device name (persists across reboots) |
+| `GET_NAME` | Get current device name |
 
 ## Project Structure
 

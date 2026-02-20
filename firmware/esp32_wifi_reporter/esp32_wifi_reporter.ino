@@ -10,6 +10,8 @@
  *   SET_INTERVAL:X   - Set reporting interval to X milliseconds
  *   CONTINUOUS:ON    - Enable continuous reporting
  *   CONTINUOUS:OFF   - Disable continuous reporting
+ *   SET_NAME:X       - Set device name (persists across reboots, max 32 chars)
+ *   GET_NAME         - Get current device name
  *
  * Output format: JSON for easy parsing
  */
@@ -17,6 +19,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <esp_wifi.h>
+#include <Preferences.h>
 
 // ==================== Configuration ====================
 // WiFi credentials - CHANGE THESE
@@ -51,11 +54,25 @@ int latencyCount = 0;
 // Command buffer
 String commandBuffer = "";
 
+// Device naming
+Preferences preferences;
+String deviceName = "";
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
 
-    Serial.println("{\"event\":\"boot\",\"message\":\"ESP32 WiFi Performance Reporter starting\"}");
+    // Load device name from NVS
+    preferences.begin("wifi_monitor", false);
+    deviceName = preferences.getString("device_name", "");
+    
+    Serial.print("{\"event\":\"boot\",\"message\":\"ESP32 WiFi Performance Reporter starting\"");
+    if (deviceName.length() > 0) {
+        Serial.print(",\"device_name\":\"");
+        Serial.print(deviceName);
+        Serial.print("\"");
+    }
+    Serial.println("}");
 
     // Connect to WiFi
     connectWiFi();
@@ -132,10 +149,36 @@ void handleSerial() {
 
 void processCommand(String cmd) {
     cmd.trim();
-    cmd.toUpperCase();
+    
+    // Handle SET_NAME specially to preserve case
+    String cmdUpper = cmd;
+    cmdUpper.toUpperCase();
+    
+    if (cmdUpper.startsWith("SET_NAME:")) {
+        String newName = cmd.substring(9);  // Use original case
+        newName.trim();
+        if (newName.length() > 0 && newName.length() <= 32) {
+            deviceName = newName;
+            preferences.putString("device_name", deviceName);
+            Serial.print("{\"event\":\"name_set\",\"device_name\":\"");
+            Serial.print(deviceName);
+            Serial.println("\"}");
+        } else {
+            Serial.println("{\"event\":\"error\",\"message\":\"Name must be 1-32 characters\"}");
+        }
+        return;
+    }
+    
+    // For other commands, use uppercase
+    cmd = cmdUpper;
 
     if (cmd == "PERF_REPORT") {
         sendPerformanceReport();
+    }
+    else if (cmd == "GET_NAME") {
+        Serial.print("{\"event\":\"device_name\",\"device_name\":\"");
+        Serial.print(deviceName);
+        Serial.println("\"}");
     }
     else if (cmd == "SPEED_TEST") {
         runSpeedTest();
@@ -165,7 +208,13 @@ void processCommand(String cmd) {
 
 void sendPerformanceReport() {
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("{\"status\":\"disconnected\",\"rssi\":null}");
+        Serial.print("{\"status\":\"disconnected\"");
+        if (deviceName.length() > 0) {
+            Serial.print(",\"device_name\":\"");
+            Serial.print(deviceName);
+            Serial.print("\"");
+        }
+        Serial.println(",\"rssi\":null}");
         return;
     }
 
@@ -242,6 +291,11 @@ void sendPerformanceReport() {
     // Build JSON response with ALL parameters
     Serial.print("{");
     Serial.print("\"status\":\"connected\"");
+    
+    // Device name (if set)
+    if (deviceName.length() > 0) {
+        Serial.print(",\"device_name\":\""); Serial.print(deviceName); Serial.print("\"");
+    }
     
     // Network identification
     Serial.print(",\"ssid\":\""); Serial.print(WiFi.SSID()); Serial.print("\"");

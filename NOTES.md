@@ -210,6 +210,21 @@ else if (cmd == "MY_COMMAND") {
 }
 ```
 
+### Device Naming
+
+Devices can be named for easy identification when monitoring multiple units:
+
+```bash
+# Set a name (persists in NVS flash)
+echo "SET_NAME:Living Room" > /dev/cu.usbmodem1101
+
+# Get current name
+echo "GET_NAME" > /dev/cu.usbmodem1101
+```
+
+The name is stored using ESP32's Preferences (NVS) library and survives reboots/power cycles.
+Names can be 1-32 characters and preserve case.
+
 ### Adding New Metrics
 
 1. Add variable to store the metric
